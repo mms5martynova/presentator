@@ -1,4 +1,4 @@
-import { resolve } from './advisor.js'
+import { resolve, analyzeRequest } from './advisor.js'
 
 export function splitText(text, maxSlides) {
   const blocks = []
@@ -35,11 +35,24 @@ export function splitText(text, maxSlides) {
 }
 
 export function buildOutline(data) {
+  const ctx = analyzeRequest(data)
   const structured = [...(data.slides || [])]
   let generated = []
   if (data.text) {
     const remaining = Math.max(data.slides_count - structured.length, 1)
     generated = splitText(data.text, remaining)
   }
-  return [...structured, ...generated].map(resolve)
+  const outline = [...structured, ...generated].map((slide, index) => resolve(slide, ctx, index))
+  return applySlideOrder(outline, data.slide_order)
+}
+
+function applySlideOrder(outline, slideOrder) {
+  if (!Array.isArray(slideOrder) || slideOrder.length === 0) return outline
+  const remaining = [...outline]
+  const ordered = []
+  for (const title of slideOrder) {
+    const index = remaining.findIndex((slide) => slide.title === title)
+    if (index >= 0) ordered.push(remaining.splice(index, 1)[0])
+  }
+  return [...ordered, ...remaining]
 }
