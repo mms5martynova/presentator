@@ -1,6 +1,9 @@
 import { supabase } from './lib/supabase.js'
 import { buildOutline } from './lib/content.js'
-import { buildPptx } from './lib/pptxBuilder.js'
+import { buildPptx, getThemeByKey } from './lib/pptxBuilder.js'
+import { buildPdf } from './lib/pdfBuilder.js'
+import { saveBlob } from './lib/saveBlob.js'
+import { getVersionTheme } from './templatesApi.js'
 
 export class ApiError extends Error {
   constructor(message, status) {
@@ -95,6 +98,15 @@ export const api = {
     return await this.getTask(task.id)
   },
 
+  async deleteTask(taskId, pptxKey, pdfKey) {
+    const paths = [pptxKey, pdfKey].filter(Boolean)
+    if (paths.length) {
+      await supabase.storage.from('presentations').remove(paths)
+    }
+    const { error } = await supabase.from('tasks').delete().eq('id', taskId)
+    if (error) throw new ApiError(formatError(error), 500)
+  },
+
   async rebuildTask(taskId, changes) {
     const parent = await this.getTask(taskId)
     const newRequest = { ...parent.request, ...changes }
@@ -116,13 +128,15 @@ export const api = {
     if (error) throw new ApiError(formatError(error), 500)
 
     const task = mapTask(data)
-    try {
-      await generatePresentation(task)
-    } catch (err) {
-      await supabase.from('tasks').update({ status: 'failed', error: err.message }).eq('id', task.id)
-      return { ...task, status: 'failed', error: err.message }
-    }
-    return await this.getTask(task.id)
+    setTimeout(() => {
+      generatePresentation(task).catch(async (err) => {
+        await supabase
+          .from('tasks')
+          .update({ status: 'failed', progress: 0, error: err.message })
+          .eq('id', task.id)
+      })
+    }, 0)
+    return task
   },
 }
 
@@ -146,35 +160,68 @@ function mapTask(row) {
   }
 }
 
+async function resolveTheme(req, visualAdvisor) {
+  if (req.template_version_id) return getVersionTheme(req.template_version_id)
+  return getThemeByKey(visualAdvisor ? 'corporate' : req.template_id || 'default')
+}
+
 async function generatePresentation(task) {
   const req = task.request
   const outline = buildOutline(req)
-  const themeKey = req.template_id || 'default'
-  const pptxBlob = await buildPptx(task.title, outline, themeKey)
+  const theme = await resolveTheme(req, outline.some((slide) => slide.visualAdvisor))
 
-  const fileName = `presentations/${task.id}/${Date.now()}.pptx`
-  const { error: uploadError } = await supabase.storage
+  const pptxBlob = await buildPptx(task.title, outline, theme)
+  const pptxFileName = `presentations/${task.id}/${Date.now()}.pptx`
+  const { error: pptxError } = await supabase.storage
     .from('presentations')
-    .upload(fileName, pptxBlob, { contentType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' })
-  if (uploadError) throw new Error('Не удалось сохранить файл: ' + uploadError.message)
+    .upload(pptxFileName, pptxBlob, { contentType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' })
+  if (pptxError) throw new Error('Не удалось сохранить PPTX: ' + pptxError.message)
 
-  await supabase.from('tasks').update({
+  const update = {
     status: 'completed',
     progress: 100,
     outline,
-    pptx_key: fileName,
-  }).eq('id', task.id)
+    pptx_key: pptxFileName,
+  }
+
+  if (req.want_pdf) {
+    try {
+      const pdfBlob = await buildPdf(task.title, outline, theme)
+      const pdfFileName = `presentations/${task.id}/${Date.now()}.pdf`
+      const { error: pdfError } = await supabase.storage
+        .from('presentations')
+        .upload(pdfFileName, pdfBlob, { contentType: 'application/pdf' })
+      if (!pdfError) update.pdf_key = pdfFileName
+    } catch {
+      // PDF optional — PPTX is the primary deliverable
+    }
+  }
+
+  await supabase.from('tasks').update(update).eq('id', task.id)
+}
+
+async function downloadBlob(key, filename) {
+  const { data, error } = await supabase.storage
+    .from('presentations')
+    .download(key)
+  if (error) throw new ApiError('Не удалось скачать файл', error.status || 500)
+  saveBlob(data, filename)
 }
 
 export async function downloadResult(taskId, taskPptxKey, title) {
+  const safeName = title.replace(/[\\/:*?"<>|]/g, '_')
+  await downloadBlob(taskPptxKey, `${safeName}.pptx`)
+}
+
+export async function downloadPdfResult(taskPdfKey, title) {
+  const safeName = title.replace(/[\\/:*?"<>|]/g, '_')
+  await downloadBlob(taskPdfKey, `${safeName}.pdf`)
+}
+
+export async function getPreviewBlob(storageKey) {
   const { data, error } = await supabase.storage
     .from('presentations')
-    .download(taskPptxKey)
-  if (error) throw new ApiError('Не удалось скачать файл', error.status || 500)
-  const url = URL.createObjectURL(data)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `${title.replace(/[\\/:*?"<>|]/g, '_')}.pptx`
-  link.click()
-  URL.revokeObjectURL(url)
+    .download(storageKey)
+  if (error) throw new ApiError('Не удалось загрузить файл для предпросмотра', error.status || 500)
+  return data
 }
