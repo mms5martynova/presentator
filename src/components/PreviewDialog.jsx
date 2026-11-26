@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 
 export default function PreviewDialog({ title, loadBlob, onClose }) {
-  const [url, setUrl] = useState(null)
   const [error, setError] = useState('')
+  const [opening, setOpening] = useState(false)
 
   useEffect(() => {
     const onKey = (event) => event.key === 'Escape' && onClose()
@@ -10,34 +10,38 @@ export default function PreviewDialog({ title, loadBlob, onClose }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  useEffect(() => {
-    let blobUrl = null
-    let cancelled = false
-    loadBlob()
-      .then((blob) => {
-        if (cancelled) return
-        blobUrl = URL.createObjectURL(blob)
-        setUrl(blobUrl)
-      })
-      .catch((err) => !cancelled && setError(err.message))
-    return () => {
-      cancelled = true
-      if (blobUrl) URL.revokeObjectURL(blobUrl)
+  const open = async () => {
+    setOpening(true)
+    setError('')
+    try {
+      const blob = await loadBlob()
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank', 'noopener')
+      setTimeout(() => URL.revokeObjectURL(url), 60 * 1000)
+      onClose()
+    } catch (err) {
+      setError(err.message)
+      setOpening(false)
     }
-  }, [loadBlob])
+  }
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal-wide card fade-in" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-        <div className="page-title-row">
-          <h2 className="subtitle">{title}</h2>
+      <div className="modal card fade-in" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+        <h2 className="subtitle">{title}</h2>
+        {error && <p className="alert alert-error">{error}</p>}
+        <p className="muted small">
+          PDF-файл откроется в новой вкладке браузера. Если браузер заблокировал всплывающее окно,
+          разрешите его для этого сайта и попробуйте ещё раз.
+        </p>
+        <div className="form-actions">
           <button type="button" className="btn btn-ghost" onClick={onClose}>
-            Закрыть
+            Отмена
+          </button>
+          <button type="button" className="btn btn-primary" disabled={opening} onClick={open}>
+            {opening ? 'Открываем…' : 'Открыть предпросмотр'}
           </button>
         </div>
-        {error && <p className="alert alert-error">{error}</p>}
-        {!error && !url && <p className="muted">Готовим предпросмотр…</p>}
-        {url && <iframe className="preview-frame" src={url} title={title} />}
       </div>
     </div>
   )
