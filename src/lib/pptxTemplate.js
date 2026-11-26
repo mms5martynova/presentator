@@ -100,6 +100,24 @@ function readColorMap(masterXml) {
 
 function emuToInch(emu, scale) { return (Number(emu) / EMU_PER_INCH) * scale }
 
+function readPlaceholderBoxWithHeight(rootXml, types, scale) {
+  for (const shape of allElements(rootXml, 'p:sp')) {
+    const ph = firstElement(shape, 'p:ph')
+    if (!ph || !types.includes(ph.getAttribute('type') ?? 'obj')) continue
+    const xfrm = firstElement(shape, 'a:xfrm')
+    const off = firstElement(xfrm, 'a:off')
+    const ext = firstElement(xfrm, 'a:ext')
+    if (!off || !ext) continue
+    return {
+      x: emuToInch(off.getAttribute('x'), scale.x),
+      y: emuToInch(off.getAttribute('y'), scale.y),
+      w: emuToInch(ext.getAttribute('cx'), scale.x),
+      h: emuToInch(ext.getAttribute('cy'), scale.y),
+    }
+  }
+  return null
+}
+
 function readPlaceholderBox(masterXml, types, scale) {
   for (const shape of allElements(masterXml, 'p:sp')) {
     const ph = firstElement(shape, 'p:ph')
@@ -157,15 +175,28 @@ function readLayout(masterXml, presentationXml) {
   }
 }
 
-async function readLayoutNames(zip) {
+// Read every slide layout with its placeholder geometry; placeholders without their
+// own xfrm inherit the master's box, so pass master boxes as fallback.
+async function readLayouts(zip, masterXml, presentationXml) {
+  const size = firstElement(presentationXml, 'p:sldSz')
+  const scale = {
+    x: BASE_WIDTH / (Number(size.getAttribute('cx')) / EMU_PER_INCH),
+    y: BASE_HEIGHT / (Number(size.getAttribute('cy')) / EMU_PER_INCH),
+  }
+  const masterTitle = readPlaceholderBoxWithHeight(masterXml, ['title', 'ctrTitle'], scale)
+  const masterBody = readPlaceholderBoxWithHeight(masterXml, ['body'], scale)
+
   const paths = Object.keys(zip.files).filter((path) => LAYOUT_PATTERN.test(path)).sort()
-  const names = []
+  const layouts = []
   for (const path of paths) {
     const xml = parseXml(await zip.file(path).async('string'))
-    const name = firstElement(xml, 'p:cSld')?.getAttribute('name')
-    if (name) names.push(name)
+    const name = firstElement(xml, 'p:cSld')?.getAttribute('name') ?? ''
+    const title = readPlaceholderBoxWithHeight(xml, ['title', 'ctrTitle'], scale) ?? masterTitle
+    const body = readPlaceholderBoxWithHeight(xml, ['body'], scale) ?? masterBody
+    if (!title && !body) continue
+    layouts.push({ name, title, body })
   }
-  return names
+  return layouts
 }
 
 async function readRelationships(zip) {
@@ -330,13 +361,14 @@ export async function parseTemplateFile(file) {
   }
 
   const rels = await readRelationships(zip)
-  const [masterImages, masterShapes, layoutNames] = await Promise.all([
+  const [masterImages, masterShapes, layouts] = await Promise.all([
     readMasterImages(zip, masterXml, rels, presentationXml),
     Promise.resolve(readMasterShapes(masterXml, palette, colorMap, presentationXml)),
-    readLayoutNames(zip),
+    readLayouts(zip, masterXml, presentationXml),
   ])
 
   return {
+    layouts,
     colors,
     font: bodyFont,
     headingFont,
@@ -346,6 +378,6 @@ export async function parseTemplateFile(file) {
     masterImages,
     masterShapes,
     layout: readLayout(masterXml, presentationXml),
-    layoutNames,
+    layoutNames: layouts.map((item) => item.name).filter(Boolean),
   }
 }

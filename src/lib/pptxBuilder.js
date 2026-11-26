@@ -1,5 +1,7 @@
 import pptxgen from 'pptxgenjs'
 
+const BASE_HEIGHT = 7.5
+
 const THEMES = {
   default: {
     name: 'Стандартная',
@@ -99,6 +101,13 @@ export async function buildPptx(title, slides, theme) {
 
   const titleFontSize = theme.titleFontSize ?? 36
   const headingFontSize = theme.headingFontSize ?? 26
+  const layouts = theme.layouts ?? []
+  const findLayout = (names) => layouts.find((item) => names.some((n) => item.name?.toLowerCase() === n))
+  const layoutFor = {
+    title: findLayout(['cover', 'title slide', 'титульный слайд']) ?? layouts[0] ?? null,
+    content: findLayout(['title and content', 'заголовок и объект']) ?? findLayout(['section']) ?? null,
+    section: findLayout(['section']) ?? null,
+  }
 
   // Title slide
   const titleSlide = pres.addSlide()
@@ -108,13 +117,14 @@ export async function buildPptx(title, slides, theme) {
     // Use imported master elements on title slide
     applyMasterElements(titleSlide, theme)
     const textColor = theme.titleColor ?? 'FFFFFF'
+    const cover = layoutFor.title?.title
     titleSlide.addText(title, {
-      x: theme.layout.titleX, y: 2.0, w: theme.layout.titleW, h: 1.5,
+      x: cover?.x ?? theme.layout.titleX, y: cover?.y ?? 2.0, w: cover?.w ?? theme.layout.titleW, h: cover?.h ?? 1.5,
       fontSize: titleFontSize, bold: true, color: textColor, fontFace: theme.headingFont, align: 'left',
       lineSpacingMultiple: 1.1,
     })
     titleSlide.addShape('rect', {
-      x: theme.layout.titleX, y: 3.65, w: 2.5, h: 0.06, fill: { color: c.primary },
+      x: cover?.x ?? theme.layout.titleX, y: (cover?.y ?? 2.0) + (cover?.h ?? 1.5) + 0.15, w: 2.5, h: 0.06, fill: { color: c.primary },
     })
   } else if (visualAdvisor) {
     titleSlide.addShape('rect', { x: 0, y: 0, w: 13.333, h: 7.5, fill: { color: 'E2E8F0' }, line: { color: 'E2E8F0' } })
@@ -138,7 +148,7 @@ export async function buildPptx(title, slides, theme) {
   }
   addPageNumber(titleSlide, 1, theme)
 
-  slides.forEach((spec, index) => addSlide(pres, spec, theme, visualAdvisor, index + 2, headingFontSize))
+  slides.forEach((spec, index) => addSlide(pres, spec, theme, visualAdvisor, index + 2, headingFontSize, layoutFor))
 
   return await pres.write({ outputType: 'blob' })
 }
@@ -152,7 +162,7 @@ function addLogo(slide, theme) {
   slide.addText('AI', { x: 11.45, y: 0.42, w: 1.15, h: 0.2, fontSize: 13, bold: true, color: 'FFFFFF', fontFace: theme.font, align: 'center' })
 }
 
-function addSlide(pres, spec, theme, visualAdvisor = false, pageNumber = 1, headingFontSize = 26) {
+function addSlide(pres, spec, theme, visualAdvisor = false, pageNumber = 1, headingFontSize = 26, layoutFor = { title: null, content: null, section: null }) {
   const c = theme.colors
   const isImportedTemplate = !!(theme.masterImages || theme.masterShapes)
   const slide = pres.addSlide({ masterName: 'Content' })
@@ -165,19 +175,21 @@ function addSlide(pres, spec, theme, visualAdvisor = false, pageNumber = 1, head
     addLogo(slide, theme)
   }
 
-  const { titleX, titleY, titleW } = theme.layout
+  const layout = spec.type === 'text' ? (layoutFor.content ?? layoutFor.section) : (layoutFor.section ?? layoutFor.content)
+  const titleBox = layout?.title ?? theme.layout
+  const { titleX, titleY, titleW } = titleBox
   slide.addText(spec.title, {
-    x: titleX, y: titleY, w: titleW, h: 0.9,
+    x: titleX, y: titleY, w: titleW, h: layout?.title?.h ?? 0.9,
     fontSize: headingFontSize, bold: true, color: c.dark, fontFace: theme.headingFont, align: 'left',
     lineSpacingMultiple: 1.0,
   })
   slide.addShape('rect', {
-    x: titleX, y: titleY + 0.85, w: 2.5, h: 0.04, fill: { color: c.primary },
+    x: titleX, y: titleY + (layout?.title?.h ?? 0.9) + 0.05, w: 2.5, h: 0.04, fill: { color: c.primary },
   })
   addPageNumber(slide, pageNumber, theme)
 
   if (spec.type === 'text') {
-    textSlide(slide, spec, theme)
+    textSlide(slide, spec, theme, layout?.body)
   } else if (spec.type === 'table') {
     tableSlide(slide, spec, theme)
   } else if (spec.type === 'chart') {
@@ -189,7 +201,7 @@ function addSlide(pres, spec, theme, visualAdvisor = false, pageNumber = 1, head
   }
 }
 
-function textSlide(slide, spec, theme) {
+function textSlide(slide, spec, theme, body) {
   const c = theme.colors
   const items = spec.bullets || []
   if (items.length === 0) return
@@ -198,8 +210,10 @@ function textSlide(slide, spec, theme) {
     text: item,
     options: { bullet: spec.iconBullets ? { code: spec.iconBullets[index].charCodeAt(0) } : { code: 2022 }, fontSize: size, color: c.text, fontFace: theme.font, lineSpacingMultiple: 1.3, breakLine: true },
   }))
+  const contentY = body?.y ?? theme.layout.contentY
+  const contentH = body ? BASE_HEIGHT - contentY - 0.5 : 5.2
   slide.addText(rows, {
-    x: theme.layout.contentX, y: theme.layout.contentY, w: theme.layout.contentW, h: 5.2, valign: 'top',
+    x: body?.x ?? theme.layout.contentX, y: contentY, w: body?.w ?? theme.layout.contentW, h: contentH, valign: 'top',
   })
 }
 
