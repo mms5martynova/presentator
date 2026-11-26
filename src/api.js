@@ -184,17 +184,17 @@ async function generatePresentation(task) {
     pptx_key: pptxFileName,
   }
 
-  if (req.want_pdf) {
-    try {
-      const pdfBlob = await buildPdf(task.title, outline, theme)
-      const pdfFileName = `presentations/${task.id}/${Date.now()}.pdf`
-      const { error: pdfError } = await supabase.storage
-        .from('presentations')
-        .upload(pdfFileName, pdfBlob, { contentType: 'application/pdf' })
-      if (!pdfError) update.pdf_key = pdfFileName
-    } catch {
-      // PDF optional — PPTX is the primary deliverable
-    }
+  // PDF is always built because the preview dialog needs it; the
+  // "download PDF" option only controls whether it is offered as a file.
+  try {
+    const pdfBlob = await buildPdf(task.title, outline, theme)
+    const pdfFileName = `presentations/${task.id}/${Date.now()}.pdf`
+    const { error: pdfError } = await supabase.storage
+      .from('presentations')
+      .upload(pdfFileName, pdfBlob, { contentType: 'application/pdf' })
+    if (!pdfError) update.pdf_key = pdfFileName
+  } catch {
+    // PDF optional — PPTX is the primary deliverable
   }
 
   await supabase.from('tasks').update(update).eq('id', task.id)
