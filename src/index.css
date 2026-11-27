@@ -1043,7 +1043,8 @@ h2 {
   gap: 0;
 }
 
-.btn-delete-task {
+.btn-delete-task,
+.btn-delete-template {
   position: absolute;
   top: 12px;
   right: 12px;
@@ -1063,16 +1064,23 @@ h2 {
   z-index: 2;
 }
 
-.list-item-wrap:hover .btn-delete-task {
+.btn-delete-template {
   opacity: 1;
 }
 
-.btn-delete-task:hover:not(:disabled) {
+.list-item-wrap:hover .btn-delete-task,
+.list-item-wrap:hover .btn-delete-template {
+  opacity: 1;
+}
+
+.btn-delete-task:hover:not(:disabled),
+.btn-delete-template:hover:not(:disabled) {
   background: var(--error-50);
   color: var(--error-600);
 }
 
-.btn-delete-task:disabled {
+.btn-delete-task:disabled,
+.btn-delete-template:disabled {
   opacity: 0;
   cursor: not-allowed;
 }
