@@ -548,6 +548,12 @@ h2 {
   background: var(--neutral-200);
 }
 
+.preview-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .modal-wide {
   max-width: 960px;
 }
@@ -769,6 +775,10 @@ h2 {
   }
 
   .outline-comparison {
+    grid-template-columns: 1fr;
+  }
+
+  .preview-options {
     grid-template-columns: 1fr;
   }
 
