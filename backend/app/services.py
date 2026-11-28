@@ -13,7 +13,7 @@ from app.schemas import TaskCreate, TaskRebuild
 
 SYNC_MAX_SLIDES = 5
 MAX_TEMPLATE_BYTES = 50 * 1024 * 1024
-CONTENT_FIELDS = {"text", "slides", "slides_count", "language", "audience", "tone"}
+CONTENT_FIELDS = {"text", "slides", "slides_count", "language", "audience", "tone", "instruction"}
 
 
 def validation_message(exc: ValidationError) -> str:

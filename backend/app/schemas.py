@@ -1,6 +1,6 @@
 import base64
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -84,6 +84,40 @@ class SlideSpec(BaseModel):
         return self
 
 
+class DeckSlideInput(BaseModel):
+    type: Literal["title_slide", "bar_chart", "comparison_table", "text_block", "process"]
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class DeckOptions(BaseModel):
+    page_numbers: bool = False
+    footer_text: str | None = Field(default=None, max_length=500)
+    generate_preview: bool = True
+
+
+class PresentationCreate(BaseModel):
+    style_code: str | None = Field(default=None, max_length=100)
+    title: str = Field(min_length=1, max_length=200)
+    slides: list[DeckSlideInput] = Field(min_length=1, max_length=40)
+    options: DeckOptions = Field(default_factory=DeckOptions)
+    correlation_id: str | None = Field(default=None, max_length=200)
+    mode: Literal["async", "sync"] = "async"
+
+
+class PresentationRefine(BaseModel):
+    instruction: str | None = Field(default=None, max_length=4000)
+    mode: Literal["llm", "explicit"] = "llm"
+    slides: list[DeckSlideInput] | None = Field(default=None, max_length=40)
+
+    @model_validator(mode="after")
+    def has_changes(self):
+        if not self.instruction and not self.slides:
+            raise ValueError("Укажите instruction или slides для доработки")
+        if self.mode == "explicit" and not self.slides:
+            raise ValueError("Для режима explicit передайте slides")
+        return self
+
+
 class TaskCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     text: str | None = Field(default=None, max_length=50_000)
@@ -95,6 +129,10 @@ class TaskCreate(BaseModel):
     template_id: int | None = None
     want_pdf: bool = False
     mode: Literal["async", "sync"] = "async"
+    style_code: str | None = Field(default=None, max_length=100)
+    options: DeckOptions = Field(default_factory=DeckOptions)
+    correlation_id: str | None = Field(default=None, max_length=200)
+    instruction: str | None = Field(default=None, max_length=4000)
 
     @model_validator(mode="after")
     def has_content(self):
@@ -113,6 +151,7 @@ class TaskRebuild(BaseModel):
     tone: str | None = Field(default=None, max_length=200)
     template_id: int | None = None
     want_pdf: bool | None = None
+    instruction: str | None = Field(default=None, max_length=4000)
 
 
 class TaskOut(BaseModel):

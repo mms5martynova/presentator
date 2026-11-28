@@ -1,14 +1,16 @@
 import base64
+from datetime import datetime
 from io import BytesIO
 
 import lxml.etree
 from pptx import Presentation
 from pptx.chart.data import CategoryChartData
 from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
+from pptx.enum.text import PP_ALIGN
 from pptx.oxml.ns import qn
 from pptx.util import Emu, Inches, Pt
 
-from app.schemas import SlideSpec, TableData
+from app.schemas import DeckOptions, SlideSpec, TableData
 
 _CHART_TYPES = {
     "column": XL_CHART_TYPE.COLUMN_CLUSTERED,
@@ -36,13 +38,20 @@ def validate_template(data: bytes) -> None:
         raise ValueError("В шаблоне нет макетов с местами для текста")
 
 
-def build_pptx(title: str, slides: list[SlideSpec], template: bytes | None) -> bytes:
+def build_pptx(
+    title: str,
+    slides: list[SlideSpec],
+    template: bytes | None,
+    options: DeckOptions | None = None,
+) -> bytes:
     prs = _open_base(template)
     _set_theme_fonts(prs)
     title_slide = prs.slides.add_slide(_layout(prs, "title"))
     _set_title(prs, title_slide, title)
     for spec in slides:
         _add_slide(prs, spec)
+    if options:
+        _apply_global_settings(prs, options)
     for slide in prs.slides:
         _apply_font(slide)
     buffer = BytesIO()
@@ -235,6 +244,24 @@ def _write_cell(cell, text: str, size: int, bold: bool = False) -> None:
     for paragraph in cell.text_frame.paragraphs:
         paragraph.font.size = Pt(size)
         paragraph.font.bold = bold
+
+
+def _apply_global_settings(prs: Presentation, options: DeckOptions) -> None:
+    footer = options.footer_text
+    date = datetime.now().strftime("%d.%m.%Y")
+    for index, slide in enumerate(prs.slides, start=1):
+        parts = [part for part in (footer, date) if part]
+        if options.page_numbers:
+            parts.append(f"{index}/{len(prs.slides)}")
+        if not parts:
+            continue
+        textbox = slide.shapes.add_textbox(
+            Inches(0.5), prs.slide_height - Inches(0.35), prs.slide_width - Inches(1), Inches(0.2)
+        )
+        paragraph = textbox.text_frame.paragraphs[0]
+        paragraph.text = " · ".join(parts)
+        paragraph.alignment = PP_ALIGN.RIGHT
+        paragraph.font.size = Pt(9)
 
 
 def _set_theme_fonts(prs: Presentation) -> None:

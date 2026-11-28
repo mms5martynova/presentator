@@ -1,10 +1,12 @@
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import advisor, storage
+from app.deck_generator import to_slide_spec, to_task_create
 from app.db import get_db
 from app.models import Task, User
 from app.schemas import (
@@ -12,6 +14,8 @@ from app.schemas import (
     MeOut,
     RecommendationOut,
     SlideSpec,
+    PresentationCreate,
+    PresentationRefine,
     TaskCreate,
     TaskOut,
     TaskRebuild,
@@ -72,6 +76,43 @@ def recommend_visualization(slide: SlideSpec, _: User = Depends(get_current_user
 
 
 # ─── Задачи генерации ──────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/presentation",
+    response_model=TaskOut,
+    tags=["Задачи"],
+    summary="Собрать многостраничную презентацию",
+    description=(
+        "Принимает массив типизированных слайдов и собирает их в единую презентацию. "
+        "Поддерживаются title_slide, bar_chart, comparison_table, text_block и process."
+    ),
+    responses={
+        **AUTH_BAD_REQUEST,
+        200: {"model": TaskOut, "description": "Презентация собрана"},
+        202: {"model": TaskOut, "description": "Презентация поставлена в очередь"},
+    },
+)
+def create_presentation(
+    body: PresentationCreate,
+    response: Response,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        task_data = to_task_create(
+            body.title,
+            body.slides,
+            body.style_code,
+            body.options,
+            body.correlation_id,
+            body.mode,
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    task = submit_task(db, user, task_data)
+    response.status_code = 200 if body.mode == "sync" else 202
+    return task
 
 
 @router.post(
@@ -177,8 +218,44 @@ def rebuild(
     return rebuild_task(db, user, parent, body)
 
 
+@router.post(
+    "/presentation/{task_id}/refine",
+    response_model=TaskOut,
+    status_code=202,
+    tags=["Задачи"],
+    summary="Создать новую версию презентации",
+    description=(
+        "Создаёт новую версию презентации. В режиме llm используется инструкция, "
+        "а в режиме explicit передаётся полный новый список слайдов."
+    ),
+    responses={
+        **AUTH_BAD_REQUEST,
+        404: {"model": ErrorOut, "description": "Презентация не найдена"},
+    },
+)
+def refine_presentation(
+    task_id: str,
+    body: PresentationRefine,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    changes = {"instruction": body.instruction} if body.instruction else {}
+    if body.slides:
+        try:
+            changes["slides"] = [to_slide_spec(slide).model_dump(mode="json") for slide in body.slides]
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        changes["slides_count"] = len(body.slides)
+    try:
+        rebuild_changes = TaskRebuild.model_validate(changes)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=validation_message(exc)) from exc
+    parent = get_owned_task(db, user, task_id)
+    return rebuild_task(db, user, parent, rebuild_changes)
+
+
 @router.get(
-    "/tasks/{task_id}/result",
+    "/tasks/{task_id}/result", 
     tags=["Задачи"],
     summary="Скачать готовую презентацию (PPTX или PDF)",
     description=(

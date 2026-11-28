@@ -52,7 +52,12 @@ def _execute(db: Session, task: Task) -> None:
     slides = [SlideSpec.model_validate(item) for item in task.outline]
     _advance(db, task, 40)
 
-    pptx = build_pptx(data.title, slides, _load_template(db, task.template_version_id))
+    pptx = build_pptx(
+        data.title,
+        slides,
+        _load_template(db, task.template_version_id),
+        data.options,
+    )
     task.pptx_key = storage.save(f"tasks/{task.id}/presentation.pptx", pptx)
     _advance(db, task, 70)
 
