@@ -64,7 +64,7 @@ export default function RebuildDialog({ task, onClose, onRebuilt }) {
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal card fade-in" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+      <div className="modal modal-rebuild card fade-in" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
         <h2 className="subtitle">Собрать заново</h2>
         <p className="muted small">
           Если меняется только оформление или название, структура слайдов сохранится. Изменение числа слайдов

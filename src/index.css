@@ -598,6 +598,24 @@ h2 {
   gap: 16px;
 }
 
+.modal-rebuild {
+  max-height: calc(100vh - 48px);
+  overflow: hidden;
+}
+
+.modal-rebuild .form {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.modal-rebuild .form-actions {
+  position: sticky;
+  bottom: 0;
+  padding-top: 12px;
+  background: #ffffff;
+}
+
 .fade-in {
   animation: fade-in 0.25s ease both;
 }
